@@ -1,7 +1,7 @@
 {
-  "name": "animedmg-stremio-addon",
+  "name": "animefire-stremio-addon",
   "version": "1.0.0",
-  "description": "Addon Stremio gratuito que episódios de animes dublados/legendados PT-BR",
+  "description": "Addon Stremio gratuito que raspa animefire.plus e entrega episódios dublados/legendados PT-BR",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
@@ -15,6 +15,6 @@
   "devDependencies": {
     "nodemon": "^3.0.0"
   },
-  "keywords": ["stremio", "anime", "addon", "animedmg"],
+  "keywords": ["stremio", "anime", "addon", "animefire"],
   "license": "MIT"
 }
