@@ -1,75 +1,31 @@
 const express = require('express');
-const axios   = require('axios');
-const cheerio = require('cheerio');
-
-const app  = express();
-const PORT = process.env.PORT || 3000;
-
-app.get('/manifest.json', (_, res) => {
-  res.json({
-    id            : 'org.stremio.animefireplus',
-    version       : '1.0.0',
-    name          : 'AnimeFire+ PT-BR',
-    description   : 'Episódios dublados/legendados PT-BR via animefire.plus',
-    types         : ['series', 'movie'],
-    catalogs      : [],
-    resources     : ['stream'],
-    idPrefixes    : ['animefire'],
-    behaviorHints : { configRequired: false, configurable: false }
+const { sources, createProvider, asMeta, approved } = require('./src/provider');
+const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+function createApp(provider = createProvider()) {
+  const app = express();
+  app.use((req,res,next) => { res.set('Access-Control-Allow-Origin','*'); res.set('Cache-Control','no-store'); if(req.method === 'OPTIONS') return res.sendStatus(204); next(); });
+  app.get('/manifest.json', (_,res) => res.json({ id:'org.stremio.animedmg', version:'2.0.0', name:'AnimeDmg — revisão', description:'Catálogos de anime para revisão. Vídeos somente após liberação por título.', types:['series'], resources:['catalog','meta','stream'], idPrefixes:['animedmg:'], catalogs:sources.filter(s=>s.enabled).map(s=>({type:'series',id:s.id,name:s.name,extra:[{name:'search'},{name:'genre',options:['Dublado','Legendado','Dublado e legendado','Não informado']}] })) }));
+  app.get(['/catalog/series/:source.json','/catalog/series/:source/:extra.json'], async(req,res,next) => {
+    try { const extra = new URLSearchParams(req.params.extra || ''); const items = await provider.catalog(req.params.source,1,extra.get('search') || ''); res.json({metas:items.filter(i=>!extra.get('genre') || i.language === extra.get('genre')).map(asMeta)}); } catch(e){next(e);}
   });
-});
-
-app.get('/stream/:type/:id.json', async (req, res) => {
-  const id   = req.params.id.replace('animefire:', '');
-  const [slug, ep] = id.split('-ep-');
-  const url  = `https://animefire.plus/animes/${slug}/episodio-${ep}`;
-
-  try {
-    const { data } = await axios.get(url, {
-      headers: { 'User-Agent': 'Mozilla/5.0' }
-    });
-    const $ = cheerio.load(data);
-    const streams = [];
-
-    // players internos do próprio AnimeFire
-    $('video source').each((_, el) => {
-      let src = $(el).attr('src');
-      if (src && (src.includes('.m3u8') || src.includes('.mp4'))) {
-        if (src.startsWith('//')) src = 'https:' + src;
-        streams.push({
-          name : 'AnimeFire+ (DUB/Leg PT-BR)',
-          type : 'series',
-          url  : src,
-          title: `Ep ${ep} – player 1`
-        });
-      }
-    });
-
-    // links externos que contenham dublado / pt-br
-    $('a[href*=".m3u8"], a[href*=".mp4"], iframe[src*=".m3u8"], iframe[src*=".mp4"]').each((_, el) => {
-      let src = $(el).attr('href') || $(el).attr('src');
-      if (!src) return;
-      if (src.startsWith('//')) src = 'https:' + src;
-      if (!src.startsWith('http')) return;
-
-      // filtro simples de linguagem
-      const pageText = $('body').text().toLowerCase();
-      const langOk   = pageText.includes('dublado') || pageText.includes('pt-br') || pageText.includes('ptbr');
-
-      if (langOk || true) { // retire o "|| true" se quiser filtro mais agressivo
-        streams.push({
-          name : 'AnimeFire+ (DUB/Leg PT-BR)',
-          type : 'series',
-          url  : src,
-          title: `Ep ${ep} – player ${streams.length + 1}`
-        });
-      }
-    });
-
-    res.json({ streams });
-  } catch (_) {
-    res.json({ streams: [] });
-  }
-});
-
-app.listen(PORT, () => console.log(`AnimeFire+ rodando na porta ${PORT}`));
+  app.get('/meta/series/:id.json', async(req,res,next) => {
+    try { const detail = await provider.detail(req.params.id); if(!detail) return res.status(404).json({meta:null}); const meta = asMeta(detail.item); res.json({meta:{...meta,description:[meta.description,detail.description].filter(Boolean).join('\n\n'),videos:detail.episodes.map(({pageUrl,...ep})=>ep)}}); } catch(e){next(e);}
+  });
+  app.get('/stream/series/:id.json', async(req,res,next) => { try {res.json({streams:await provider.streams(req.params.id)});}catch(e){next(e);} });
+  app.get(['/', '/review', '/review.json'], async(req,res,next) => {
+    try {
+      const source = String(req.query.source || sources.find(s=>s.enabled)?.id || '');
+      const page = Math.min(1000,Math.max(1,Number.parseInt(req.query.page,10)||1));
+      const query = String(req.query.q || '').slice(0,200);
+      const found = await provider.catalog(source,page,query);
+      const items = found.map(i=>({...i,status:approved(i)?'Liberado':'Pendente'}));
+      if(req.path === '/review.json') return res.json({source,page,items});
+      res.set('Content-Security-Policy', "default-src 'none'; img-src https:; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
+      res.send(`<!doctype html><html lang="pt-BR"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Revisão AnimeDmg</title><style>body{font:16px system-ui;max-width:1100px;margin:30px auto;padding:16px;color:#172330;background:#fafafa}td,th{padding:12px;border-bottom:1px solid #ddd;text-align:left}img{width:65px}code{overflow-wrap:anywhere}table{width:100%}input,select,button{padding:10px;margin:5px}a{color:#0659a5}</style><h1>Revisão de conteúdos</h1><p>Consulte os títulos e suas páginas. A reprodução fica bloqueada até você registrar a autorização de cada título. A presença no site não comprova direitos de uso.</p><form><select name="source">${sources.filter(s=>s.enabled).map(s=>`<option value="${escape(s.id)}" ${s.id===source?'selected':''}>${escape(s.name)}</option>`).join('')}</select><input name="q" placeholder="Buscar título" value="${escape(query)}"><button>Consultar</button></form><p>Fonte: ${escape(source)} · Página ${page}${query?' · Busca (primeira página)':''}</p><table><thead><tr><th>Capa</th><th>Título e identificador</th><th>Idioma</th><th>Reprodução</th></tr></thead><tbody>${items.map(i=>`<tr><td>${i.poster?`<img loading="lazy" src="${escape(i.poster)}" alt="">`:''}</td><td><a href="${escape(i.pageUrl)}" target="_blank" rel="noopener noreferrer">${escape(i.name)}</a><br><code>${escape(i.id)}</code></td><td>${escape(i.language)}</td><td>${i.status}</td></tr>`).join('')}</tbody></table>${!query?`<p><a href="?source=${encodeURIComponent(source)}&page=${Math.max(1,page-1)}">Anterior</a> · <a href="?source=${encodeURIComponent(source)}&page=${page+1}">Próxima página</a></p>`:''}<p><a href="/review.json?source=${encodeURIComponent(source)}&page=${page}&q=${encodeURIComponent(query)}">Ver dados JSON</a> · <a href="/manifest.json">Manifesto Stremio</a></p></html>`);
+    } catch(e){next(e);}
+  });
+  app.use((err,req,res,next)=>res.status(502).json({error:'Falha ao consultar a fonte',detail:err.message}));
+  return app;
+}
+if(require.main === module) createApp().listen(process.env.PORT || 3000, process.env.HOST || '127.0.0.1',()=>console.log(`Revisão: http://127.0.0.1:${process.env.PORT||3000}/review`));
+module.exports = {createApp};

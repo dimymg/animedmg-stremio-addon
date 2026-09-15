@@ -1,0 +1,16 @@
+[
+  {
+    "id": "animesonlinecc", "name": "AnimesOnlineCC", "enabled": true,
+    "baseUrl": "https://animesonlinecc.to", "allowedHosts": ["animesonlinecc.to"],
+    "catalogPath": "/anime/", "pagePath": "/anime/page/{page}/", "searchPath": "/?s={query}",
+    "cards": "article.tvshows", "link": "a", "title": "h3", "seriesPath": "^/anime/[^/]+/?$",
+    "episodes": ".episodiotitle a", "episodePath": "^/episodio/", "description": ".wp-content p", "genres": ".sgeneros a"
+  },
+  {
+    "id": "animefire", "name": "AnimeFire", "enabled": true,
+    "baseUrl": "https://animefire.plus", "allowedHosts": ["animefire.plus", "animefire.io"],
+    "catalogPath": "/", "pagePath": "/animes-atualizados/{page}", "searchPath": "/pesquisar/{query}",
+    "cards": "article, .divCard", "link": "a[href*='/animes/']", "title": "h3, .animeTitle", "seriesPath": "^/animes/[^/]+/?$",
+    "episodes": "a.lEp", "episodePath": "^/(animes|episodios)/", "description": ".description, .sinopse", "genres": ".animeInfo a"
+  }
+]
